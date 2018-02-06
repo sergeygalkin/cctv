@@ -1,0 +1,104 @@
+---
+- hosts: ftp-server
+  become: yes
+  tasks:
+    - name: Install packages
+      package: name={{ item }} state=latest
+      with_items:
+        - tmux
+        - zsh
+        - vsftpd
+        - python-pip
+    - name: Install pip packages
+      pip: name={{ item }}
+      with_items:
+        - watchdog
+        - python-telegram-bot
+    - name: Create user cctv
+      user:
+        name: cctv
+        shell: /usr/bin/zsh
+        generate_ssh_key: yes
+    - name: Create /home/cctv/cctv
+      file:
+        path: /home/cctv/{{ item }}
+        state: directory
+        owner: cctv
+      with_items:
+        - cctv
+        - .locks
+    - name: Copy vsftpd settings
+      copy:
+        src: configs/vsftpd.conf
+        dest: /etc/vsftpd.conf
+      register: vsftpd_conf
+    - name: Enable vsftpd
+      service:
+        name: vsftpd
+        enabled: yes
+        state: started
+    - name: Restart vsftp if new config file
+      service:
+        name: vsftpd
+        enabled: yes
+        state: restarted
+      when: vsftpd_conf.changed
+    - name: Create /opt/tbot/bin
+      file:
+        path: /opt/tbot/bin
+        state: directory
+    - name: Copy main script
+      copy:
+        src: telegram-bot/watchdog-ftp.py
+        dest: /opt/tbot/bin/watchdog-ftp.py
+        mode: 0755
+      register: watchdog_ftp_script
+    - name: Copy main service file
+      copy:
+        src: telegram-bot/watchdog-ftp.service
+        dest: /etc/systemd/system/watchdog-ftp.service
+        mode: 0644
+      register: watchdog_ftp_service
+    - name: Enable watchdog-ftp
+      systemd:
+        name: watchdog-ftp
+        enabled: yes
+        state: started
+        daemon_reload: yes
+    - name: Restart watchdog-ftp
+      systemd:
+        name: watchdog-ftp
+        enabled: yes
+        state: restarted
+        daemon_reload: yes
+      when:  watchdog_ftp_service.changed or watchdog_ftp_script.changed
+    - name: Set authorized key from file
+      authorized_key:
+        user: cctv
+        state: present
+        key: "{{ lookup('file', 'keys/cctv_key.pub') }}"
+    - name: Enable cronie
+      service:
+        name: cronie
+        enabled: yes
+        state: started
+    - cron:
+        name: Delete old photos
+        minute: 0
+        hour: 0
+        user: cctv
+        job: /usr/bin/find /home/cctv/cctv -mindepth 1 -mtime +14 -delete
+    # For OCam M3 only
+    # - name: Webcam scripts
+    #   copy:
+    #     src: scripts/{{ item }}
+    #     dest: /usr/local/bin/{{ item }}
+    #     mode: 0755
+    #   with_items:
+    #     - webcam_restart.py
+    # - cron:
+    #     name: Reboot webcam
+    #     minute: 0
+    #     hour: 4
+    #     user: cctv
+    #     job: /usr/local/bin/webcam_restart.py
