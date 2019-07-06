@@ -29,6 +29,7 @@ class MyEventHandler(FileSystemEventHandler):
             and not os.path.exists(LOCK_FILE)):
             now = datetime.datetime.now()
             logging.info("Try to sent photo {}".format(event.src_path))
+            time.sleep(2)
             self.bot.send_photo(chat_id=CHAT_ID, photo=open(event.src_path,
                                                             'rb'))
             logging.info("Sent photo {}".format(event.src_path))
